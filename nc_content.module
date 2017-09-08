@@ -8,13 +8,14 @@
 /**
  * Implements hook_menu().
  */
-function modulename_menu() {
+function nc_content_menu() {
 
-  $items['your/special/path'] = array(
+  $items['admin/content2'] = array(
     'type' => MENU_NORMAL_ITEM,
-    'title' => t('Title'),
+    'title' => t('Admin Content'),
+    'weight' => -10,
     'description' => 'My custom and very special page',
-    'page callback' => 'modulename_special_page',
+    'page callback' => 'nc_content_my_page',
     'access callback' => 'user_access',
     'access arguments' => array('access content'),
   );
@@ -22,57 +23,81 @@ function modulename_menu() {
   return $items;
 }
 
-/**
- * Page callback.
- */
-function modulename_special_page() {
-  $content = 'Hello World';
-  // ... do something and add to $content;
-  return $content;
+function nc_content_node_get_title_fast() {
+  
+  $result = db_select('node', 'n')
+    ->fields('n', array('nid','title'))
+    // ->condition('nid', $node->nid,'=')
+    // ->condition('status', 0,'>')
+    // ->condition('uid', array(1,5,7),'IN')
+    ->execute()
+    ->fetchAll();
+
+  return $result;
 }
 
-// /**
-//  * Implements hook_views_pre_render().
-//  */
-// function nc_content_views_pre_render(&$view) {
-//   if (!empty($view)) {
-//     // Add the view name to the tags.
-//     if (!empty($view->name)) {
-//       varnish_tag_invalidate_add_tags('view_' . $view->name);
-//     }
+function nc_content_my_page() {
+  // Create some data
+  $nids = range(0, 2000);
+  $node_table = nc_content_node_get_title_fast();
+  $table = '';
+  // var_dump($node_table[0]->title);
+  // die();
 
-//     if (!empty($view->base_table) && !empty($view->result)) {
-//       // If count of results returned by view has changed, purge view name from tags.
-//       if (variable_get($view->name . '_result_count' != count($view->result))) {
-//         varnish_tag_invalidate_purge_tags(array('view_' . $view->name));
-//       }
+  foreach ($node_table as $item) {
+        $table .= '<tr><td>';
+        $table .= '<a href="node/' . $item->nid . '">';
+        $table .= $item->title;
+        $table .= '</a></tr></td>';
+      }
+
+  $data = array
+  (
+    '#markup' => t('
+      <tr>
+      <td><strong>This is the data for my page</strong></td>
+      </tr>' . $table . ''),
+    '#prefix' => '<table id="nc-content-table">',
+    '#suffix' => '</table>',
+  );
+
+  // Create a $page render array that will be returned
+  // from your callback. Attach the CSS using the #attached
+  // element of this array
+  $page = array
+  (
+    'nc_content_my_page' => array
+    (
+      // Note - we will register theme_my_page in the next step
+      '#theme' => 'nc-content-theme',
+      '#contents' => $data,
+    ),
+    '#attached' => array
+    (
+      'css' => array
+      (
+        array
+        (
+          'type' => 'file',
+          'data' => drupal_get_path('module', 'nc_content') . '/css/my_page.css',
+        ),
+      ),
+    ),
+  );
+
+  return $page;
+}
 
 
-//       $check_count = db_select('nc_varnish_view_results', 'resultcount')
-//       ->fields('resultcount')
-//       ->condition('viewname', $view->name,'=')
-//       ->execute()
-//       ->fetchAssoc();
-//       echo($check_count[resultcount]);
-//       die();
-
-//       // Also add nodes - only bothering with nodes for now, more entities
-//       // could be added later.
-//       foreach ($view->result as $result) {
-//         if (!empty($result->nid)) {
-//           varnish_tag_invalidate_add_tags($view->base_table . '_' . $result->nid);
-//         }
-//       }
-
-//       // Update variable tracking the count of results returned by the view.
-//       variable_set($view->name . '_result_count', count($view->result));
-
-//       $view_count = db_insert('nc_varnish_view_results') // Table name no longer needs {}
-//       ->fields(array(
-//       'resultcount' => count($view->result),
-//       'viewname' => $view->name,
-//       ))->execute();
-
-//     }
-//   }
-// }
+function nc_content_theme()
+{
+  return array
+  (
+    'nc-content-theme' => array
+    (
+      'variables' => array('contents' => array()),
+      // Register the template my-page.tpl.php
+      'template' => 'nc_content-page', // don't add .tpl.php
+    ),
+  );
+}
