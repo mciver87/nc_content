@@ -4,71 +4,202 @@
  * Code for the NC Content feature.
  */
 
-
 /**
  * Implements hook_menu().
  */
-function nc_content_menu() {
 
-  $items['admin/content2'] = array(
+function nc_content_menu_alter(&$items) {
+    unset($items['admin/content']);
+}
+
+function nc_content_menu() {
+  $items['admin/nc-content'] = array(
     'type' => MENU_NORMAL_ITEM,
-    'title' => t('Admin Content'),
+    'title' => t('Content'),
     'weight' => -9,
-    'description' => 'My custom and very special page',
+    'description' => 'Alternative content admin menu.',
     'page callback' => 'nc_content_my_page',
     'access callback' => 'user_access',
-    'access arguments' => array('access content'),
+    'access arguments' => array('access content overview'),
     );
 
   return $items;
 }
 
-function nc_content_node_get_title_fast() {
-  $result = db_select('node', 'n')
-  // ->join('users', 'u', 'n.uid = u.uid') //JOIN node with users
-  ->fields('n', array('nid', 'title', 'type', 'uid', 'changed'))
-  ->orderBy('changed', 'DESC')//ORDER BY created
-  // ->fields('u',array('name'))//SELECT the fields from user
-  ->extend('PagerDefault')
-  ->limit(30)
+function nc_content_user_list() {
+    // Get usernames.
+  $user_query = db_select('users', 'u')
+    ->fields('u', array('uid', 'name'))
+    ->execute()
+    ->fetchAll();
+  $usernames = array();
+  foreach ($user_query as $user) {
+    $usernames[$user->uid] = $user->name;
+  }
+  $usernames[0] = 'Anonymous';
+  // var_dump($usernames);
+  // die();
+  return $usernames;
+}
+
+function nc_content_workbench_list() {
+    // Get the workbench moderation stuff. May do away with this if not used.
+  $workbench_results = array();
+
+  $workbench_query = db_select('workbench_moderation_node_history', 'w')
+  ->fields('w', array('nid', 'state', 'is_current'))
+  // ->condition('body_value', '%' . db_like($_GET['body_value']) . '%', 'LIKE')
   ->execute()
+  ->fetchAll();
+
+  foreach ($workbench_query as $unit) {
+    $workbench_results[$unit->nid] = $unit->state;
+    if ($workbench_results[$unit->nid] == '') {
+      $workbench_results[$unit->nid] = 'Doesn\'t use workbench';
+    }
+  }
+
+  return $workbench_results;
+}
+
+function nc_content_generation() {
+  
+  // Get order and asc/desc from URL and set defaults if we can't.
+  if (isset($_GET['order'])) {
+    $order = $_GET['order'];
+  }
+  else {
+    $order = 'changed';
+  }
+
+  if (isset($_GET['sort'])) {
+    $sort = $_GET['sort'];
+  }
+  else {
+    $sort = 'DESC';
+  }
+
+  // Search nodes by body if query exists. This never returns landing pages.
+  $body_results = array();
+
+  if ($_GET['body_value'] != '' && isset($_GET['body_value'])) {
+    $body_search = db_select('field_data_body', 'fdb')
+    ->fields('fdb', array('entity_id', 'body_value'))
+    ->condition('body_value', '%' . db_like($_GET['body_value']) . '%', 'LIKE')
+    ->execute()
+    ->fetchAll();
+
+    foreach ($body_search as $unit) {
+      array_push($body_results, $unit->entity_id);
+    }
+  }
+
+  // This is the main query of the node table.
+  $query = db_select('node', 'n')
+  ->fields('n', array('nid', 'title', 'type', 'uid', 'changed'))
+  ->orderBy($order, $sort)//ORDER BY created
+  ->extend('PagerDefault')
+  ->limit(30);
+
+  // Only fire filter conditions if it's necessary.
+  if ($_GET['title'] != '' && isset($_GET['title'])) {
+    $query->condition('title', '%' . db_like(htmlspecialchars($_GET['title'])) . '%', 'LIKE');
+  }
+  if ($_GET['type'] != '' && isset($_GET['type'])) {
+    $query->condition('type', '%' . db_like(htmlspecialchars($_GET['type'])) . '%', 'LIKE');
+  }
+  if ($_GET['author'] != '' && isset($_GET['author'])) {
+    $query->condition('uid', db_like(htmlspecialchars($_GET['author'])), '=');
+  }
+  // ->condition('type', $_GET['type'], '=')
+  if ($_GET['body_value'] != '' && isset($_GET['body_value'])) {
+    $query->condition('nid', $body_results,'IN');
+  }
+  
+  $result = $query->execute()
   ->fetchAll();
 
   return $result;
 }
 
 function nc_content_my_page() {
-  // Create some data
-  $node_table = nc_content_node_get_title_fast();
+  // Get node content and usernames.
+  $node_table = nc_content_generation();
+  $user_array = nc_content_user_list();
+  // $workbench_info = nc_content_workbench_list();
+
   $table = '';
-  // var_dump($node_table);
+
+  // var_dump($_SERVER['PHP_SELF']);
+  // die();
+  
+  // Sorting links arrangement
+  $sort = $_GET['sort'];
+  if ($sort == 'ASC') {
+    $link_sort = 'DESC';
+    $arrow = '&uarr;';
+  }
+  else {
+    $link_sort = 'ASC';
+    $arrow = '&darr;';
+  }
+  $current_sort = array();
+  if (isset($_GET['order'])) {
+    $current_sort[$_GET['order']] = $arrow;
+  }
+
+  // $test = drupal_get_path_alias('node/20', 'en');
+  // var_dump($test);
   // die();
 
   foreach ($node_table as $item) {
     $table .= '<tr><td>';
-    $table .= '<a href=\'/node/' . $item->nid . '\'>' . $item->title . '</a></td>';
-    $table .= '<td>' . $item->type . '</td>';
-    $table .= '<td><a href=\'/user/' . $item->uid . '\'>' . $item->uid . '</a></td>';
-    $table .= '<td><a href=\'/node/' . $item->nid . '/edit\'>edit</a></td>';
+    $table .= '<a href=\'/' . drupal_get_path_alias('node/' . $item->nid) . '\'>' . $item->title . '</a></td>';
+    $table .= '<td>' . str_replace('_', ' ', ucwords($item->type)) . '</td>';
+    $table .= '<td><a class=\'user-link\' href=\'/user/' . $item->uid . '\'>' . $user_array[$item->uid] . '</a></td>';
+    $table .= '<td><a href=\'/node/' . $item->nid . '/edit?destination=admin/content2\'>edit</a></td>';
     $table .= '<td><a href=\'/node/' . $item->nid . '/delete\'>delete</a></td>';
+    // $table .= '<td>' . $workbench_info[$item->nid] . '</td>';
     $table .= '</tr>';
   }
 
   $pager .= theme('pager', array('tags' => array()));
 
+  $clean_query = str_replace('&order='.$_GET['order'], '', $_SERVER['QUERY_STRING']);
+  $clean_query = str_replace('order='.$_GET['order'], '', $clean_query);
+  $clean_query = str_replace('?sort='.$_GET['sort'], '', $clean_query);
+  $clean_query = str_replace('sort='.$_GET['sort'], '', $clean_query);
+  $clean_query = preg_replace('/&{2,}/','&', $clean_query);
+
+  if (mb_substr($_SERVER['QUERY_STRING'], 0, 1) == '&') {
+    $amp = '';
+  }
+  else {
+    $amp = '&';
+  }
+
+
   $data = array
   (
     '#markup' => t('
+     <thead> 
       <tr>
-        <td><strong>Title</strong></td>
-        <td><strong>Type</strong></td>
-        <td><strong>Author</strong></td>
-        <td><strong>Edit</strong></td>
-        <td><strong>Delete</strong></td>
-      </tr>' . $table . ''),
+        <th><strong><a href="/admin/content2?' . $clean_query . $amp . 'order=title&amp;sort=' . $link_sort . '">Title&nbsp;' . $current_sort['title'] . '</a></strong></th>
+        <th><strong><a href="/admin/content2?' . $clean_query . $amp . 'order=type&amp;sort=' . $link_sort . '">Type&nbsp;'  . $current_sort['type'] . '</a></strong></th>
+        <th><strong><a href="/admin/content2?' . $clean_query . $amp . 'order=uid&amp;sort=' . $link_sort . '">Author&nbsp;'  . $current_sort['uid'] . '</a></strong></th>
+        <th><strong>Edit</strong></th>
+        <th><strong>Delete</strong></th>
+        <!--<td><strong>Moderation Status</strong></td>-->
+      </tr></thead>' . $table . ''),
     '#prefix' => '<table id="nc-content-table">',
     '#suffix' => '</table>' . $pager,
     );
+
+  // Flipping so we can match names to ids in the author dropdown.
+  $user_array2 = array_flip($user_array);
+  foreach ($user_array as $name) {
+    $user_list['#markup'] .= '<option value="' . $user_array2[$name] . '" id="' . $user_array2[$name] . '">' . $name . '</option>';
+  }
 
   // Create a $page render array that will be returned
   // from your callback. Attach the CSS using the #attached
@@ -79,8 +210,9 @@ function nc_content_my_page() {
     (
       // Note - we will register theme_my_page in the next step
       '#theme' => 'nc-content-theme',
-      '#contents' => $data,
-      )
+      '#contents' => array($data, $user_list),
+      ),
+
     // '#attached' => array
     // (
     //   'css' => array
@@ -98,8 +230,7 @@ function nc_content_my_page() {
 }
 
 
-function nc_content_theme()
-{
+function nc_content_theme() {
   return array
   (
     'nc-content-theme' => array
