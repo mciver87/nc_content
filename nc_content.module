@@ -1,7 +1,7 @@
 <?php
 /**
  * @file
- * Code for the NC Content feature.
+ * Code for the NC Content Admin Custom Page.
  */
 
 /**
@@ -157,7 +157,7 @@ function nc_content_my_page() {
     $table .= '<a href=\'/' . drupal_get_path_alias('node/' . $item->nid) . '\'>' . $item->title . '</a></td>';
     $table .= '<td>' . str_replace('_', ' ', ucwords($item->type)) . '</td>';
     $table .= '<td><a class=\'user-link\' href=\'/user/' . $item->uid . '\'>' . $user_array[$item->uid] . '</a></td>';
-    $table .= '<td><a href=\'/node/' . $item->nid . '/edit?destination=admin/content2\'>edit</a></td>';
+    $table .= '<td><a href=\'/node/' . $item->nid . '/edit?destination=admin/nc-content\'>edit</a></td>';
     $table .= '<td><a href=\'/node/' . $item->nid . '/delete\'>delete</a></td>';
     // $table .= '<td>' . $workbench_info[$item->nid] . '</td>';
     $table .= '</tr>';
@@ -184,9 +184,9 @@ function nc_content_my_page() {
     '#markup' => t('
      <thead> 
       <tr>
-        <th><strong><a href="/admin/content2?' . $clean_query . $amp . 'order=title&amp;sort=' . $link_sort . '">Title&nbsp;' . $current_sort['title'] . '</a></strong></th>
-        <th><strong><a href="/admin/content2?' . $clean_query . $amp . 'order=type&amp;sort=' . $link_sort . '">Type&nbsp;'  . $current_sort['type'] . '</a></strong></th>
-        <th><strong><a href="/admin/content2?' . $clean_query . $amp . 'order=uid&amp;sort=' . $link_sort . '">Author&nbsp;'  . $current_sort['uid'] . '</a></strong></th>
+        <th><strong><a href="/admin/nc-content?' . $clean_query . $amp . 'order=title&amp;sort=' . $link_sort . '">Title&nbsp;' . $current_sort['title'] . '</a></strong></th>
+        <th><strong><a href="/admin/nc-content?' . $clean_query . $amp . 'order=type&amp;sort=' . $link_sort . '">Type&nbsp;'  . $current_sort['type'] . '</a></strong></th>
+        <th><strong><a href="/admin/nc-content?' . $clean_query . $amp . 'order=uid&amp;sort=' . $link_sort . '">Author&nbsp;'  . $current_sort['uid'] . '</a></strong></th>
         <th><strong>Edit</strong></th>
         <th><strong>Delete</strong></th>
         <!--<td><strong>Moderation Status</strong></td>-->
