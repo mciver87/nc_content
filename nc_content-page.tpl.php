@@ -12,7 +12,7 @@ body {
 		</ul>
 	</div>
 	<div class="view-filters">
-		<form accept-charset="UTF-8" action="/admin/content2" id="views-exposed-form-openpublic-find-content-page" method="get" name="views-exposed-form-openpublic-find-content-page">
+		<form accept-charset="UTF-8" action="/admin/nc-content" id="views-exposed-form-openpublic-find-content-page" method="get" name="views-exposed-form-openpublic-find-content-page">
 			<div>
 				<div class="views-exposed-form">
 					<div class="views-exposed-widgets clearfix">
@@ -104,7 +104,7 @@ body {
 							<input class="form-submit" id="edit-submit-openpublic-find-content" name="" type="submit" value="Apply">
 						</div>
 						<div style="display: inline-block;">
-							<a href="/admin/content2" class="button">Reset</a>   
+							<a href="/admin/nc-content" class="button">Reset</a>   
 						</div>
 					</div>
 				</div>
