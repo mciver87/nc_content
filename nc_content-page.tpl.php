@@ -82,7 +82,7 @@ body {
 							</div>
 						</div>
 						<div class="views-exposed-widget views-widget-filter-type" id="edit-type-wrapper">
-							<label for="edit-author">Author</label>
+							<label for="edit-author">Original Author</label>
 							<div class="views-widget">
 								<div class="form-item form-type-select">
 									<select class="form-select" id="edit-author" name="author">
@@ -104,7 +104,7 @@ body {
 							<input class="form-submit" id="edit-submit-openpublic-find-content" name="" type="submit" value="Apply">
 						</div>
 						<div style="display: inline-block;">
-							<a href="/admin/nc-content" class="button">Reset</a>   
+							<a href="/admin/nc-content" class="button">Reset</a>
 						</div>
 					</div>
 				</div>
@@ -113,21 +113,9 @@ body {
 	</div><?php print render($contents[0]); ?>
 </div>
 
-<script type="text/javascript">
+<!-- <script type="text/javascript">
 var val2 = location.href.match(/[?&]author=(.*?)[$&]/)[1];
 jQuery('#edit-author').val(val2);
 var val = location.href.match(/[?&]type=(.*?)[$&]/)[1];   // get params from URL
 jQuery('#edit-type').val(val);   //  assign URL param to select field
-
-
-// jQuery('table tr td').each(function(index){
-//     //index contains the current td index in the parent tr (1,2,3),(1,2,3)...
-//     //if the corresponding th has a class
-//     if(jQuery('thead tr th').eq(index).attr('class') != ''){
-//         //put this class on the current td
-//         jQuery(this).addClass($('thead tr th').eq(index).attr('class'));
-//     }
-// });
-
-
-</script>
+</script> -->

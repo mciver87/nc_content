@@ -1,0 +1,3 @@
+body {
+  background-image: url('/<?php echo(drupal_get_path('module', 'nc_content')); ?>/img/bg.png') !important;
+}

@@ -9,7 +9,7 @@
  */
 
 function nc_content_menu_alter(&$items) {
-    unset($items['admin/content']);
+    unset($items['admin/content']); // Remove openpublic content admin link.
 }
 
 function nc_content_menu() {
@@ -26,6 +26,7 @@ function nc_content_menu() {
   return $items;
 }
 
+// Fetches user names for display in content table.
 function nc_content_user_list() {
     // Get usernames.
   $user_query = db_select('users', 'u')
@@ -63,7 +64,7 @@ function nc_content_workbench_list() {
 }
 
 function nc_content_generation() {
-  
+
   // Get order and asc/desc from URL and set defaults if we can't.
   if (isset($_GET['order'])) {
     $order = $_GET['order'];
@@ -115,7 +116,7 @@ function nc_content_generation() {
   if ($_GET['body_value'] != '' && isset($_GET['body_value'])) {
     $query->condition('nid', $body_results,'IN');
   }
-  
+
   $result = $query->execute()
   ->fetchAll();
 
@@ -132,7 +133,7 @@ function nc_content_my_page() {
 
   // var_dump($_SERVER['PHP_SELF']);
   // die();
-  
+
   // Sorting links arrangement
   $sort = $_GET['sort'];
   if ($sort == 'ASC') {
@@ -182,7 +183,7 @@ function nc_content_my_page() {
   $data = array
   (
     '#markup' => t('
-     <thead> 
+     <thead>
       <tr>
         <th><strong><a href="/admin/nc-content?' . $clean_query . $amp . 'order=title&amp;sort=' . $link_sort . '">Title&nbsp;' . $current_sort['title'] . '</a></strong></th>
         <th><strong><a href="/admin/nc-content?' . $clean_query . $amp . 'order=type&amp;sort=' . $link_sort . '">Type&nbsp;'  . $current_sort['type'] . '</a></strong></th>
@@ -213,18 +214,27 @@ function nc_content_my_page() {
       '#contents' => array($data, $user_list),
       ),
 
-    // '#attached' => array
-    // (
-    //   'css' => array
-    //   (
-    //     array
-    //     (
-    //       'type' => 'file',
-    //       'data' => drupal_get_path('module', 'nc_content') . '/css/my_page.css',
-    //     ),
-    //   ),
-    // ),
-    );
+    '#attached' => array
+    (
+      'js' => array
+      (
+        array
+        (
+          'type' => 'file',
+          'data' => drupal_get_path('module', 'nc_content') . '/js/nc-content.js',
+        ),
+      ),
+
+      'css' => array
+      (
+        array
+        (
+          'type' => 'file',
+          'data' => drupal_get_path('module', 'nc_content') . '/css/nc-content.css',
+        ),
+      ),
+    ),
+  );
 
   return $page;
 }
@@ -236,8 +246,7 @@ function nc_content_theme() {
     'nc-content-theme' => array
     (
       'variables' => array('contents' => array()),
-      // Register the template my-page.tpl.php
       'template' => 'nc_content-page', // don't add .tpl.php
-      ),
-    );
+    )
+  );
 }
