@@ -4,249 +4,327 @@
  * Code for the NC Content Admin Custom Page.
  */
 
+ /**
+  * Implements hook_module_implements_alter().
+  */
+ function nc_content_module_implements_alter(&$implementations, $hook) {
+   // Modify the order in which hook_menu_alter is called for our module.
+   if ($hook == 'menu_alter') {
+     // Save the current value from the $implementations array.
+     $nc_content_implementation = $implementations['nc_content'];
+     // Unset it.
+     unset($implementations['nc_content']);
+     // Replace it, thereby making it last in the list.
+     $implementations['nc_content'] = $nc_content_implementation;
+   }
+ }
+
 /**
- * Implements hook_menu().
+ * Implements hook_menu_alter().
  */
-
 function nc_content_menu_alter(&$items) {
-    unset($items['admin/content']); // Remove openpublic content admin link.
+  // Remove openpublic content admin link.
+  unset($items['admin/content']['page callback']);
+  // Also optionally unset page arguments, just in case.
+  if (!empty($items['admin/content']['page arguments'])) {
+    unset($items['admin/content']['page arguments']);
+  }
+  // Reset them to their correct values.
+  $items['admin/content']['page callback'] = 'drupal_get_form';
+  $items['admin/content']['page arguments'] = array(
+    'node_admin_content',
+  );
+  $items['admin/content']['file'] = 'node.admin.inc';
+  $items['admin/content']['file path'] = drupal_get_path('module', 'node');
 }
 
-function nc_content_menu() {
-  $items['admin/nc-content'] = array(
-    'type' => MENU_NORMAL_ITEM,
-    'title' => t('Content'),
-    'weight' => -9,
-    'description' => 'Alternative content admin menu.',
-    'page callback' => 'nc_content_my_page',
-    'access callback' => 'user_access',
-    'access arguments' => array('access content overview'),
+/**
+ * Implements hook_form_alter().
+ */
+function nc_content_form_alter(&$form, &$form_state, $form_id) {
+  if ($form_id == 'node_admin_content') {
+    $form['filter'] = nc_content_filter_form();
+    $form['admin'] = nc_content_admin_nodes();
+  }
+}
+
+/**
+ * Function nc_content_filter_form().
+ * @see node_filter_form().
+ *
+ * @ingroup forms
+ */
+function nc_content_filter_form() {
+  // Ternary operator that either takes the sessions vars or saves empty array to $session.
+  $session = isset($_SESSION['node_overview_filter']) ? $_SESSION['node_overview_filter'] : array();
+  $filters = node_filters();
+  // Remove the langauge filter.
+  unset($filters['language']);
+  $i = 0;
+  $form['filters'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Show only items where'),
+    '#theme' => 'exposed_filters__node',
+  );
+  // Remove unused types from the node filters.
+  // Get a list of USED types.
+  $used_types = db_select('node', 'n')
+    ->distinct()
+    ->fields('n', array('type'))
+    ->execute()
+    ->fetchCol();
+  $used_types = array_values($used_types);
+  $available_types = array_keys($filters['type']['options']);
+  $difference = array();
+  // Return a simple array with the items in the first array that are not in second.
+  $difference = array_diff($available_types, $used_types);
+  // Unset the unused types.
+  if (!empty($difference)) {
+    foreach ($filters['type']['options'] as $key => $value) {
+      if (in_array($key, $difference) && $key != '[any]') {
+        unset($filters['type']['options'][$key]);
+      }
+    }
+  }
+  // Modify filters as necessary.
+  foreach ($session as $filter) {
+    list($type, $value) = $filter;
+    if ($type == 'term') {
+      // Load term name from DB rather than search and parse options array.
+      $value = module_invoke('taxonomy', 'term_load', $value);
+      $value = $value->name;
+    }
+    elseif ($type == 'language') {
+      $value = $value == LANGUAGE_NONE ? t('Language neutral') : module_invoke('locale', 'language_name', $value);
+    }
+    else {
+      $value = $filters[$type]['options'][$value];
+    }
+    $t_args = array('%property' => $filters[$type]['title'], '%value' => $value);
+    if ($i++) {
+      $form['filters']['current'][] = array('#markup' => t('and where %property is %value', $t_args));
+    }
+    else {
+      $form['filters']['current'][] = array('#markup' => t('where %property is %value', $t_args));
+    }
+    if (in_array($type, array('type', 'language'))) {
+      // Remove the option if it is already being filtered on.
+      unset($filters[$type]);
+    }
+  }
+
+  $form['filters']['status'] = array(
+    '#type' => 'container',
+    '#attributes' => array('class' => array('clearfix')),
+    '#prefix' => ($i ? '<div class="additional-filters">' . t('and where') . '</div>' : ''),
+  );
+  $form['filters']['status']['filters'] = array(
+    '#type' => 'container',
+    '#attributes' => array('class' => array('filters')),
+  );
+  foreach ($filters as $key => $filter) {
+    $form['filters']['status']['filters'][$key] = array(
+      '#type' => 'select',
+      '#options' => $filter['options'],
+      '#title' => $filter['title'],
+      '#default_value' => '[any]',
     );
+  }
 
-  return $items;
+  $form['filters']['status']['actions'] = array(
+    '#type' => 'actions',
+    '#attributes' => array('class' => array('container-inline')),
+  );
+  $form['filters']['status']['actions']['submit'] = array(
+    '#type' => 'submit',
+    '#value' => count($session) ? t('Refine') : t('Filter'),
+  );
+  if (count($session)) {
+    $form['filters']['status']['actions']['undo'] = array('#type' => 'submit', '#value' => t('Undo'));
+    $form['filters']['status']['actions']['reset'] = array('#type' => 'submit', '#value' => t('Reset'));
+  }
+
+  drupal_add_js('misc/form.js');
+
+  return $form;
 }
 
-// Fetches user names for display in content table.
-function nc_content_user_list() {
-    // Get usernames.
-  $user_query = db_select('users', 'u')
+/**
+ * Function nc_content_admin_nodes().
+ * @see node_admin_nodes()
+ *
+ * @ingroup forms
+ */
+function nc_content_admin_nodes() {
+  $admin_access = user_access('administer nodes');
+
+  // Build the 'Update options' form.
+  $form['options'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Update options'),
+    '#attributes' => array('class' => array('container-inline')),
+    '#access' => $admin_access,
+  );
+  $options = array();
+  foreach (module_invoke_all('node_operations') as $operation => $array) {
+    $options[$operation] = $array['label'];
+  }
+  $form['options']['operation'] = array(
+    '#type' => 'select',
+    '#title' => t('Operation'),
+    '#title_display' => 'invisible',
+    '#options' => $options,
+    '#default_value' => 'approve',
+  );
+  $form['options']['submit'] = array(
+    '#type' => 'submit',
+    '#value' => t('Update'),
+    '#validate' => array('node_admin_nodes_validate'),
+    '#submit' => array('node_admin_nodes_submit'),
+  );
+
+  // Enable language column if translation module is enabled or if we have any
+  // node with language.
+  $multilanguage = (module_exists('translation') || db_query_range("SELECT 1 FROM {node} WHERE language <> :language", 0, 1, array(':language' => LANGUAGE_NONE))->fetchField());
+
+  // Build the sortable table header.
+  $header = array(
+    'title' => array('data' => t('Title'), 'field' => 'n.title'),
+    'type' => array('data' => t('Type'), 'field' => 'n.type'),
+    'author' => array('data' => t('Author'), 'field' => 'u.name'),
+    'status' => array('data' => t('Status'), 'field' => 'n.status'),
+    'changed' => array('data' => t('Updated'), 'field' => 'n.changed', 'sort' => 'desc')
+  );
+  if ($multilanguage) {
+    $header['language'] = array('data' => t('Language'), 'field' => 'n.language');
+  }
+  $header['operations'] = array('data' => t('Operations'));
+
+  $query = db_select('node', 'n')->extend('PagerDefault')->extend('TableSort');
+  $query->join('users', 'u', 'n.uid = u.uid');
+
+  $query->addTag('node_admin_filter');
+  node_build_filter_query($query);
+
+  if (!user_access('bypass node access')) {
+    // If the user is able to view their own unpublished nodes, allow them
+    // to see these in addition to published nodes. Check that they actually
+    // have some unpublished nodes to view before adding the condition.
+    if (user_access('view own unpublished content') && $own_unpublished = db_query('SELECT nid FROM {node} WHERE uid = :uid AND status = :status', array(':uid' => $GLOBALS['user']->uid, ':status' => 0))->fetchCol()) {
+      $query->condition(db_or()
+        ->condition('n.status', 1)
+        ->condition('n.nid', $own_unpublished, 'IN')
+      );
+    }
+    else {
+      // If not, restrict the query to published nodes.
+      $query->condition('n.status', 1);
+    }
+  }
+  $nids = $query
+    ->fields('n')
     ->fields('u', array('uid', 'name'))
+    ->limit(50)
+    ->orderByHeader($header)
+    ->addTag('node_access')
     ->execute()
-    ->fetchAll();
-  $usernames = array();
-  foreach ($user_query as $user) {
-    $usernames[$user->uid] = $user->name;
-  }
-  $usernames[0] = 'Anonymous';
-  // var_dump($usernames);
-  // die();
-  return $usernames;
-}
+    ->fetchCol();
+  $nodes = node_load_multiple($nids);
 
-function nc_content_workbench_list() {
-    // Get the workbench moderation stuff. May do away with this if not used.
-  $workbench_results = array();
-
-  $workbench_query = db_select('workbench_moderation_node_history', 'w')
-  ->fields('w', array('nid', 'state', 'is_current'))
-  // ->condition('body_value', '%' . db_like($_GET['body_value']) . '%', 'LIKE')
-  ->execute()
-  ->fetchAll();
-
-  foreach ($workbench_query as $unit) {
-    $workbench_results[$unit->nid] = $unit->state;
-    if ($workbench_results[$unit->nid] == '') {
-      $workbench_results[$unit->nid] = 'Doesn\'t use workbench';
+  // Prepare the list of nodes.
+  $languages = language_list();
+  $destination = drupal_get_destination();
+  $options = array();
+  foreach ($nodes as $node) {
+    $langcode = entity_language('node', $node);
+    $uri = entity_uri('node', $node);
+    if ($langcode != LANGUAGE_NONE && isset($languages[$langcode])) {
+      $uri['options']['language'] = $languages[$langcode];
     }
-  }
-
-  return $workbench_results;
-}
-
-function nc_content_generation() {
-
-  // Get order and asc/desc from URL and set defaults if we can't.
-  if (isset($_GET['order'])) {
-    $order = $_GET['order'];
-  }
-  else {
-    $order = 'changed';
-  }
-
-  if (isset($_GET['sort'])) {
-    $sort = $_GET['sort'];
-  }
-  else {
-    $sort = 'DESC';
-  }
-
-  // Search nodes by body if query exists. This never returns landing pages.
-  $body_results = array();
-
-  if ($_GET['body_value'] != '' && isset($_GET['body_value'])) {
-    $body_search = db_select('field_data_body', 'fdb')
-    ->fields('fdb', array('entity_id', 'body_value'))
-    ->condition('body_value', '%' . db_like($_GET['body_value']) . '%', 'LIKE')
-    ->execute()
-    ->fetchAll();
-
-    foreach ($body_search as $unit) {
-      array_push($body_results, $unit->entity_id);
-    }
-  }
-
-  // This is the main query of the node table.
-  $query = db_select('node', 'n')
-  ->fields('n', array('nid', 'title', 'type', 'uid', 'changed'))
-  ->orderBy($order, $sort)//ORDER BY created
-  ->extend('PagerDefault')
-  ->limit(30);
-
-  // Only fire filter conditions if it's necessary.
-  if ($_GET['title'] != '' && isset($_GET['title'])) {
-    $query->condition('title', '%' . db_like(htmlspecialchars($_GET['title'])) . '%', 'LIKE');
-  }
-  if ($_GET['type'] != '' && isset($_GET['type'])) {
-    $query->condition('type', '%' . db_like(htmlspecialchars($_GET['type'])) . '%', 'LIKE');
-  }
-  if ($_GET['author'] != '' && isset($_GET['author'])) {
-    $query->condition('uid', db_like(htmlspecialchars($_GET['author'])), '=');
-  }
-  // ->condition('type', $_GET['type'], '=')
-  if ($_GET['body_value'] != '' && isset($_GET['body_value'])) {
-    $query->condition('nid', $body_results,'IN');
-  }
-
-  $result = $query->execute()
-  ->fetchAll();
-
-  return $result;
-}
-
-function nc_content_my_page() {
-  // Get node content and usernames.
-  $node_table = nc_content_generation();
-  $user_array = nc_content_user_list();
-  // $workbench_info = nc_content_workbench_list();
-
-  $table = '';
-
-  // var_dump($_SERVER['PHP_SELF']);
-  // die();
-
-  // Sorting links arrangement
-  $sort = $_GET['sort'];
-  if ($sort == 'ASC') {
-    $link_sort = 'DESC';
-    $arrow = '&uarr;';
-  }
-  else {
-    $link_sort = 'ASC';
-    $arrow = '&darr;';
-  }
-  $current_sort = array();
-  if (isset($_GET['order'])) {
-    $current_sort[$_GET['order']] = $arrow;
-  }
-
-  // $test = drupal_get_path_alias('node/20', 'en');
-  // var_dump($test);
-  // die();
-
-  foreach ($node_table as $item) {
-    $table .= '<tr><td>';
-    $table .= '<a href=\'/' . drupal_get_path_alias('node/' . $item->nid) . '\'>' . $item->title . '</a></td>';
-    $table .= '<td>' . str_replace('_', ' ', ucwords($item->type)) . '</td>';
-    $table .= '<td><a class=\'user-link\' href=\'/user/' . $item->uid . '\'>' . $user_array[$item->uid] . '</a></td>';
-    $table .= '<td><a href=\'/node/' . $item->nid . '/edit?destination=admin/nc-content\'>edit</a></td>';
-    $table .= '<td><a href=\'/node/' . $item->nid . '/delete\'>delete</a></td>';
-    // $table .= '<td>' . $workbench_info[$item->nid] . '</td>';
-    $table .= '</tr>';
-  }
-
-  $pager .= theme('pager', array('tags' => array()));
-
-  $clean_query = str_replace('&order='.$_GET['order'], '', $_SERVER['QUERY_STRING']);
-  $clean_query = str_replace('order='.$_GET['order'], '', $clean_query);
-  $clean_query = str_replace('?sort='.$_GET['sort'], '', $clean_query);
-  $clean_query = str_replace('sort='.$_GET['sort'], '', $clean_query);
-  $clean_query = preg_replace('/&{2,}/','&', $clean_query);
-
-  if (mb_substr($_SERVER['QUERY_STRING'], 0, 1) == '&') {
-    $amp = '';
-  }
-  else {
-    $amp = '&';
-  }
-
-
-  $data = array
-  (
-    '#markup' => t('
-     <thead>
-      <tr>
-        <th><strong><a href="/admin/nc-content?' . $clean_query . $amp . 'order=title&amp;sort=' . $link_sort . '">Title&nbsp;' . $current_sort['title'] . '</a></strong></th>
-        <th><strong><a href="/admin/nc-content?' . $clean_query . $amp . 'order=type&amp;sort=' . $link_sort . '">Type&nbsp;'  . $current_sort['type'] . '</a></strong></th>
-        <th><strong><a href="/admin/nc-content?' . $clean_query . $amp . 'order=uid&amp;sort=' . $link_sort . '">Author&nbsp;'  . $current_sort['uid'] . '</a></strong></th>
-        <th><strong>Edit</strong></th>
-        <th><strong>Delete</strong></th>
-        <!--<td><strong>Moderation Status</strong></td>-->
-      </tr></thead>' . $table . ''),
-    '#prefix' => '<table id="nc-content-table">',
-    '#suffix' => '</table>' . $pager,
+    $options[$node->nid] = array(
+      'title' => array(
+        'data' => array(
+          '#type' => 'link',
+          '#title' => $node->title,
+          '#href' => $uri['path'],
+          '#options' => $uri['options'],
+          '#suffix' => ' ' . theme('mark', array('type' => node_mark($node->nid, $node->changed))),
+        ),
+      ),
+      'type' => check_plain(node_type_get_name($node)),
+      'author' => theme('username', array('account' => $node)),
+      'status' => $node->status ? t('published') : t('not published'),
+      'changed' => t('@interval ago', array('@interval' => format_interval((REQUEST_TIME - $node->changed)))),
     );
-
-  // Flipping so we can match names to ids in the author dropdown.
-  $user_array2 = array_flip($user_array);
-  foreach ($user_array as $name) {
-    $user_list['#markup'] .= '<option value="' . $user_array2[$name] . '" id="' . $user_array2[$name] . '">' . $name . '</option>';
+    if ($multilanguage) {
+      if ($langcode == LANGUAGE_NONE || isset($languages[$langcode])) {
+        $options[$node->nid]['language'] = $langcode == LANGUAGE_NONE ? t('Language neutral') : t($languages[$langcode]->name);
+      }
+      else {
+        $options[$node->nid]['language'] = t('Undefined language (@langcode)', array('@langcode' => $langcode));
+      }
+    }
+    // Build a list of all the accessible operations for the current node.
+    $operations = array();
+    if (node_access('update', $node)) {
+      $operations['edit'] = array(
+        'title' => t('edit'),
+        'href' => 'node/' . $node->nid . '/edit',
+        'query' => $destination,
+      );
+    }
+    if (node_access('delete', $node)) {
+      $operations['delete'] = array(
+        'title' => t('delete'),
+        'href' => 'node/' . $node->nid . '/delete',
+        'query' => $destination,
+      );
+    }
+    $options[$node->nid]['operations'] = array();
+    if (count($operations) > 1) {
+      // Render an unordered list of operations links.
+      $options[$node->nid]['operations'] = array(
+        'data' => array(
+          '#theme' => 'links__node_operations',
+          '#links' => $operations,
+          '#attributes' => array('class' => array('links', 'inline')),
+        ),
+      );
+    }
+    elseif (!empty($operations)) {
+      // Render the first and only operation as a link.
+      $link = reset($operations);
+      $options[$node->nid]['operations'] = array(
+        'data' => array(
+          '#type' => 'link',
+          '#title' => $link['title'],
+          '#href' => $link['href'],
+          '#options' => array('query' => $link['query']),
+        ),
+      );
+    }
   }
 
-  // Create a $page render array that will be returned
-  // from your callback. Attach the CSS using the #attached
-  // element of this array
-  $page = array
-  (
-    'nc_content_my_page' => array
-    (
-      // Note - we will register theme_my_page in the next step
-      '#theme' => 'nc-content-theme',
-      '#contents' => array($data, $user_list),
-      ),
+  // Only use a tableselect when the current user is able to perform any
+  // operations.
+  if ($admin_access) {
+    $form['nodes'] = array(
+      '#type' => 'tableselect',
+      '#header' => $header,
+      '#options' => $options,
+      '#empty' => t('No content available.'),
+    );
+  }
+  // Otherwise, use a simple table.
+  else {
+    $form['nodes'] = array(
+      '#theme' => 'table',
+      '#header' => $header,
+      '#rows' => $options,
+      '#empty' => t('No content available.'),
+    );
+  }
 
-    '#attached' => array
-    (
-      'js' => array
-      (
-        array
-        (
-          'type' => 'file',
-          'data' => drupal_get_path('module', 'nc_content') . '/js/nc-content.js',
-        ),
-      ),
-
-      'css' => array
-      (
-        array
-        (
-          'type' => 'file',
-          'data' => drupal_get_path('module', 'nc_content') . '/css/nc-content.css',
-        ),
-      ),
-    ),
-  );
-
-  return $page;
-}
-
-
-function nc_content_theme() {
-  return array
-  (
-    'nc-content-theme' => array
-    (
-      'variables' => array('contents' => array()),
-      'template' => 'nc_content-page', // don't add .tpl.php
-    )
-  );
+  $form['pager'] = array('#markup' => theme('pager', array('element' => 1, 'parameters' => array('pager' => 'yes'))));
+  return $form;
 }
